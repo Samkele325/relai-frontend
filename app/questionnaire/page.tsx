@@ -1,536 +1,515 @@
 "use client";
 
-import { useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Script from "next/script";
 import "./questionnaire.css";
 
-export default function QuestionnairePage() {
-  useEffect(() => {
-    const steps = Array.from(document.querySelectorAll<HTMLElement>(".form-step"));
-    const nextBtns = Array.from(document.querySelectorAll<HTMLButtonElement>(".next-btn"));
-    const progressFill = document.getElementById("progressFill") as HTMLDivElement | null;
-    const progressText = document.getElementById("progressText") as HTMLSpanElement | null;
+type QuestionnaireData = {
+  name: string;
+  email: string;
+  age: string;
+  citizenship: string;
+  country: string;
+  education: string;
+  profession: string;
+  experience: string;
+  funds: string;
+  goal: string;
+  destination_interest: string[];
+};
 
-    let currentStep = 0;
+type AnalysisResponse = {
+  success?: boolean;
+  analysis?: unknown;
+  detail?: string;
+};
 
-    function updateProgress() {
-      if (!progressFill || !progressText) return;
+declare global {
+  interface Window {
+    paypal?: {
+      Buttons: (config: any) => { render: (selector: string) => void };
+    };
+  }
+}
 
-      let percent = ((currentStep + 1) / steps.length) * 100;
-      progressFill.style.width = percent + "%";
-      progressText.innerText = Math.round(percent) + "%";
-    }
+const PRICING_MAP: Record<
+  string,
+  {
+    free: string;
+    premium: string;
+    funds: string[];
+  }
+> = {
+  "South Africa": {
+    free: "R250 ZAR (~$15 USD)",
+    premium: "R250 ZAR (~$15 USD)",
+    funds: ["Under R50k", "R50k–R100k", "R100k–R300k", "R300k+"],
+  },
+  Brazil: {
+    free: "R$75 BRL (~$15 USD)",
+    premium: "R$75 BRL (~$15 USD)",
+    funds: ["Under R$10k", "R$10k–R$50k", "R$50k–R$150k", "R$150k+"],
+  },
+  India: {
+    free: "₹1,441 INR (~$15 USD)",
+    premium: "₹1,441 INR (~$15 USD)",
+    funds: ["Under ₹100k", "₹100k–₹500k", "₹500k–₹1M", "₹1M+"],
+  },
+  Nigeria: {
+    free: "₦20,563 NGN (~$15 USD)",
+    premium: "₦20,563 NGN (~$15 USD)",
+    funds: ["Under ₦5M", "₦5M–₦15M", "₦15M–₦50M", "₦50M+"],
+  },
+  "United States": {
+    free: "$15 USD",
+    premium: "$15 USD",
+    funds: ["Under $5k", "$5k–$10k", "$10k–$30k", "$30k+"],
+  },
+};
 
-    updateProgress();
+const initialQuestionnaire: QuestionnaireData = {
+  name: "",
+  email: "",
+  age: "",
+  citizenship: "",
+  country: "",
+  education: "",
+  profession: "",
+  experience: "",
+  funds: "",
+  goal: "",
+  destination_interest: [],
+};
 
-    const nextBtnHandlers = new Map<HTMLButtonElement, (event: MouseEvent) => void>();
+function formatAnalysisText(data: unknown): string {
+  if (!data) return "No analysis returned.";
 
-    nextBtns.forEach((btn) => {
-      if (btn.id !== "viewAnalysisBtn" && btn.id !== "premiumPayBtn") {
-        const handler = () => {
-          if (currentStep < steps.length - 1) {
-            currentStep++;
-            steps[currentStep].scrollIntoView({ behavior: "smooth" });
-            steps[currentStep].classList.add("active");
-            updateProgress();
-          }
-        };
+  if (typeof data === "string") return data;
 
-        nextBtnHandlers.set(btn, handler);
-        btn.addEventListener("click", handler);
-      }
-    });
+  if (typeof data !== "object") return String(data);
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add("active");
-          }
-        });
-      },
-      { threshold: 0.2 }
+  const analysis = data as any;
+
+  const lines: string[] = [];
+
+  if (analysis.best_country_match) {
+    lines.push(
+      `Best Country Match: ${analysis.best_country_match.country} (${analysis.best_country_match.score}/100)`
     );
+    if (Array.isArray(analysis.best_country_match.why_it_fits)) {
+      lines.push("");
+      lines.push("Why it fits:");
+      analysis.best_country_match.why_it_fits.forEach((item: string) => {
+        lines.push(`• ${item}`);
+      });
+    }
+  }
 
-    steps.forEach((step) => {
-      observer.observe(step);
+  if (analysis.recommended_visa_pathway) {
+    lines.push("");
+    lines.push(`Recommended Visa Pathway: ${analysis.recommended_visa_pathway.name}`);
+    if (Array.isArray(analysis.recommended_visa_pathway.why_this_pathway)) {
+      lines.push("");
+      lines.push("Why this pathway:");
+      analysis.recommended_visa_pathway.why_this_pathway.forEach((item: string) => {
+        lines.push(`• ${item}`);
+      });
+    }
+  }
+
+  if (analysis.difficulty_level) {
+    lines.push("");
+    lines.push(`Difficulty Level: ${analysis.difficulty_level}`);
+  }
+
+  if (analysis.estimated_cost) {
+    lines.push("");
+    lines.push(
+      `Estimated Cost: ${analysis.estimated_cost.currency} ${analysis.estimated_cost.min} - ${analysis.estimated_cost.max}`
+    );
+    if (analysis.estimated_cost.note) {
+      lines.push(`${analysis.estimated_cost.note}`);
+    }
+  }
+
+  if (Array.isArray(analysis.required_documents)) {
+    lines.push("");
+    lines.push("Required Documents:");
+    analysis.required_documents.forEach((item: string) => {
+      lines.push(`• ${item}`);
     });
+  }
 
-    const countryInput = document.getElementById("country") as HTMLSelectElement | null;
-    const fundsSelect = document.getElementById("funds") as HTMLSelectElement | null;
-    const premiumPrice = document.getElementById("premiumPrice") as HTMLDivElement | null;
+  if (Array.isArray(analysis.next_steps)) {
+    lines.push("");
+    lines.push("Next Steps:");
+    analysis.next_steps.forEach((item: string) => {
+      lines.push(`• ${item}`);
+    });
+  }
 
-    const pricingMap: Record<
-      string,
-      {
-        free: string;
-        premium: string;
-        funds: string[];
-      }
-    > = {
-      "South Africa": {
-        free: "R250 ZAR (~$15 USD)",
-        premium: "R250 ZAR (~$15 USD)",
-        funds: ["Under R50k", "R50k–R100k", "R100k–R300k", "R300k+"],
-      },
+  if (Array.isArray(analysis.risks_or_gaps)) {
+    lines.push("");
+    lines.push("Risks or Gaps:");
+    analysis.risks_or_gaps.forEach((item: string) => {
+      lines.push(`• ${item}`);
+    });
+  }
 
-      Brazil: {
-        free: "R$75 BRL (~$15 USD)",
-        premium: "R$75 BRL (~$15 USD)",
-        funds: ["Under R$10k", "R$10k–R50k", "R$50k–R$150k", "R$150k+"],
-      },
+  if (analysis.tailored_summary) {
+    lines.push("");
+    lines.push("Tailored Summary:");
+    lines.push(analysis.tailored_summary);
+  }
 
-      India: {
-        free: "₹1,441 INR (~$15 USD)",
-        premium: "₹1,441 INR (~$15 USD)",
-        funds: ["Under ₹100k", "₹100k–₹500k", "₹500k–₹1M", "₹1M+"],
-      },
+  if (typeof analysis.confidence === "number") {
+    lines.push("");
+    lines.push(`Confidence: ${analysis.confidence}%`);
+  }
 
-      Nigeria: {
-        free: "₦20,563 NGN (~$15 USD)",
-        premium: "₦20,563 NGN (~$15 USD)",
-        funds: ["Under ₦5M", "₦5M–₦15M", "₦15M–₦50M", "₦50M+"],
-      },
+  return lines.join("\n");
+}
 
-      "United States": {
-        free: "$15 USD",
-        premium: "$15 USD",
-        funds: ["Under $5k", "$5k–$10k", "$10k–$30k", "$30k+"],
-      },
-    };
+export default function QuestionnairePage() {
+  const [currentStep, setCurrentStep] = useState(0);
+  const [formData, setFormData] = useState<QuestionnaireData>(initialQuestionnaire);
+  const [loadingStateVisible, setLoadingStateVisible] = useState(false);
+  const [analysisCardVisible, setAnalysisCardVisible] = useState(false);
+  const [showPremiumButton, setShowPremiumButton] = useState(false);
+  const [analysisText, setAnalysisText] = useState("This appears on the same page after the analysis is generated.");
+  const [premiumModalOpen, setPremiumModalOpen] = useState(false);
+  const [paypalReadyText, setPaypalReadyText] = useState(
+    "PayPal checkout will appear here after you continue to secure payment."
+  );
 
-    function updateCurrencyUI() {
-      if (!countryInput || !fundsSelect || !premiumPrice) return;
+  const paypalRenderedRef = useRef(false);
+  const paypalContainerRef = useRef<HTMLDivElement | null>(null);
+  const stepRefs = useRef<Array<HTMLElement | null>>([]);
+  const progressPercent = Math.min(((currentStep + 1) / 6) * 100, 100);
 
-      const selectedCountry = countryInput.value;
+  const selectedCountryConfig = useMemo(() => {
+    return PRICING_MAP[formData.country] || PRICING_MAP["United States"];
+  }, [formData.country]);
 
-      const config = pricingMap[selectedCountry] || pricingMap["United States"];
+  useEffect(() => {
+    const savedEmail =
+      localStorage.getItem("relai_email") ||
+      sessionStorage.getItem("relai_email") ||
+      "";
 
-      premiumPrice.innerText = config.premium;
+    const savedQuestionnaire =
+      localStorage.getItem("relai_questionnaire_data") ||
+      sessionStorage.getItem("relai_questionnaire_data") ||
+      "";
 
-      const fundsLabel = document.getElementById("fundsLabel");
-      if (fundsLabel) {
-        fundsLabel.innerHTML = `
-    Available Funds
-    <span style="
-      display:block;
-      margin-top:8px;
-      color:#8b6f47;
-      font-size:0.95rem;
-      font-weight:600;
-    ">
-      Estimated relocation benchmark:
-      ${config.free}
-    </span>
-  `;
-      }
-
-      fundsSelect.innerHTML = `
-    <option>Select Range</option>
-    ${config.funds
-      .map(
-        (item) => `
-      <option>${item}</option>
-    `
-      )
-      .join("")}
-  `;
-    }
-
-    if (countryInput) {
-      countryInput.addEventListener("change", updateCurrencyUI);
-    }
-
-    updateCurrencyUI();
-
-    function getQuestionnaireData() {
-      const selectedGoal = document.querySelector<HTMLInputElement>('input[name="goal"]:checked');
-
-      const selectedCountries: string[] = [];
-
-      const canada = document.getElementById("canada") as HTMLInputElement | null;
-      const uk = document.getElementById("uk") as HTMLInputElement | null;
-      const usa = document.getElementById("usa") as HTMLInputElement | null;
-
-      if (canada?.checked) {
-        selectedCountries.push("Canada");
-      }
-
-      if (uk?.checked) {
-        selectedCountries.push("United Kingdom");
-      }
-
-      if (usa?.checked) {
-        selectedCountries.push("United States");
-      }
-
-      return {
-        name: (document.getElementById("name") as HTMLInputElement | null)?.value || "",
-        email: (document.getElementById("email") as HTMLInputElement | null)?.value || "",
-        age: (document.getElementById("age") as HTMLInputElement | null)?.value || "",
-        citizenship: (document.getElementById("citizenship") as HTMLInputElement | null)?.value || "",
-        country: (document.getElementById("country") as HTMLSelectElement | null)?.value || "",
-        education: (document.getElementById("education") as HTMLSelectElement | null)?.value || "",
-        profession: (document.getElementById("profession") as HTMLInputElement | null)?.value || "",
-        experience: (document.getElementById("experience") as HTMLInputElement | null)?.value || "",
-        funds: (document.getElementById("funds") as HTMLSelectElement | null)?.value || "",
-        goal: selectedGoal ? selectedGoal.value : "",
-        destination_interest: selectedCountries,
-      };
-    }
-
-    function saveQuestionnaireSnapshot(data: ReturnType<typeof getQuestionnaireData>) {
-      localStorage.setItem("relai_questionnaire", JSON.stringify(data));
-      sessionStorage.setItem("relai_questionnaire", JSON.stringify(data));
-
-      localStorage.setItem("relai_email", data.email || "");
-      sessionStorage.setItem("relai_email", data.email || "");
-
-      localStorage.setItem("relai_origin_country", data.country || "");
-      sessionStorage.setItem("relai_origin_country", data.country || "");
-
-      localStorage.setItem("relai_profession", data.profession || "");
-      sessionStorage.setItem("relai_profession", data.profession || "");
-    }
-
-    const questionnaireEmailInput = document.getElementById("email") as HTMLInputElement | null;
-    const premiumEmailInput = document.getElementById("premiumEmail") as HTMLInputElement | null;
-
-    function hydrateEmails() {
-      if (!questionnaireEmailInput || !premiumEmailInput) return;
-
-      const storedEmail =
-        localStorage.getItem("relai_email") ||
-        sessionStorage.getItem("relai_email") ||
-        questionnaireEmailInput.value ||
-        "";
-
-      if (storedEmail && !questionnaireEmailInput.value) {
-        questionnaireEmailInput.value = storedEmail;
-      }
-
-      if (storedEmail && !premiumEmailInput.value) {
-        premiumEmailInput.value = storedEmail;
-      }
-    }
-
-    const onQuestionnaireEmailInput = () => {
-      if (!questionnaireEmailInput) return;
-      localStorage.setItem("relai_email", questionnaireEmailInput.value);
-      sessionStorage.setItem("relai_email", questionnaireEmailInput.value);
-    };
-
-    const onPremiumEmailInput = () => {
-      if (!premiumEmailInput || !questionnaireEmailInput) return;
-      localStorage.setItem("relai_email", premiumEmailInput.value);
-      sessionStorage.setItem("relai_email", premiumEmailInput.value);
-      questionnaireEmailInput.value = premiumEmailInput.value;
-    };
-
-    questionnaireEmailInput?.addEventListener("input", onQuestionnaireEmailInput);
-    premiumEmailInput?.addEventListener("input", onPremiumEmailInput);
-
-    hydrateEmails();
-
-    const viewAnalysisBtn = document.getElementById("viewAnalysisBtn") as HTMLButtonElement | null;
-    const loadingState = document.getElementById("loadingState") as HTMLDivElement | null;
-
-    const onViewAnalysisClick = async () => {
-      if (!loadingState) return;
-
-      loadingState.style.display = "block";
-
-      const questionnaireData = getQuestionnaireData();
-
-      saveQuestionnaireSnapshot(questionnaireData);
-
+    if (savedQuestionnaire) {
       try {
-        const response = await fetch("/generate-free-analysis", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(questionnaireData),
-        });
-
-        if (!response.ok) {
-          throw new Error("Backend request failed");
-        }
-
-        const aiResult = await response.json();
-
-        localStorage.setItem("relocation_analysis_result", JSON.stringify(aiResult));
-        sessionStorage.setItem("relocation_analysis_result", JSON.stringify(aiResult));
-
-        window.location.href = "result.html";
-      } catch (error) {
-        console.error(error);
-        alert("Failed to generate AI analysis.");
-        loadingState.style.display = "none";
+        const parsed = JSON.parse(savedQuestionnaire) as Partial<QuestionnaireData>;
+        setFormData((prev) => ({
+          ...prev,
+          ...parsed,
+          destination_interest: Array.isArray(parsed.destination_interest)
+            ? parsed.destination_interest
+            : prev.destination_interest,
+        }));
+      } catch {
+        // Ignore invalid stored data.
       }
-    };
-
-    viewAnalysisBtn?.addEventListener("click", onViewAnalysisClick);
-
-    const premiumBtn = document.getElementById("premiumBtn") as HTMLButtonElement | null;
-    const premiumModal = document.getElementById("premiumModal") as HTMLDivElement | null;
-    const closeModal = document.getElementById("closeModal") as HTMLButtonElement | null;
-    const premiumPayBtn = document.getElementById("premiumPayBtn") as HTMLButtonElement | null;
-    const paypalContainer = document.getElementById("paypal-button-container") as HTMLDivElement | null;
-    const paypalPlaceholder = document.getElementById("paypalPlaceholder") as HTMLDivElement | null;
-
-    let firebaseDocId: string | null = null;
-    let paypalRendered = false;
-    let pendingPaymentIntent: any = null;
-
-    function openPremiumModal() {
-      if (!premiumModal || !premiumEmailInput) return;
-
-      const questionnaireData = getQuestionnaireData();
-
-      saveQuestionnaireSnapshot(questionnaireData);
-
-      premiumEmailInput.value =
-        questionnaireData.email || localStorage.getItem("relai_email") || "";
-
-      premiumModal.classList.add("active");
-      document.body.style.overflow = "hidden";
+    } else if (savedEmail) {
+      setFormData((prev) => ({
+        ...prev,
+        email: prev.email || savedEmail,
+      }));
     }
+  }, []);
 
-    function closePremiumModal() {
-      if (!premiumModal) return;
-
-      premiumModal.classList.remove("active");
-      document.body.style.overflow = "";
+  useEffect(() => {
+    const el = stepRefs.current[currentStep];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
     }
+  }, [currentStep]);
 
-    premiumBtn?.addEventListener("click", openPremiumModal);
-    closeModal?.addEventListener("click", closePremiumModal);
-
-    const onModalOverlayClick = (e: MouseEvent) => {
-      if (e.target === premiumModal) {
-        closePremiumModal();
-      }
-    };
-
-    premiumModal?.addEventListener("click", onModalOverlayClick);
-
-    const onEscapeKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && premiumModal?.classList.contains("active")) {
-        closePremiumModal();
-      }
-    };
-
-    document.addEventListener("keydown", onEscapeKeyDown);
-
-    function buildPaymentIntentData() {
-      const questionnaireData = getQuestionnaireData();
-
-      const email = (premiumEmailInput?.value.trim() || questionnaireData.email.trim()) as string;
-
-      return {
-        email,
-        questionnaire: questionnaireData,
-        selectedCountry: questionnaireData.country,
-        profession: questionnaireData.profession,
-        paymentIntent: true,
-        paymentStatus: "pending",
-        premiumUnlocked: false,
-        createdAt: new Date().toISOString(),
-      };
+  useEffect(() => {
+    if (formData.email) {
+      localStorage.setItem("relai_email", formData.email);
+      sessionStorage.setItem("relai_email", formData.email);
     }
+  }, [formData.email]);
 
-    async function savePaymentIntent(data: any) {
-      localStorage.setItem("relai_payment_intent", JSON.stringify(data));
-      sessionStorage.setItem("relai_payment_intent", JSON.stringify(data));
+  useEffect(() => {
+    localStorage.setItem("relai_questionnaire_data", JSON.stringify(formData));
+    sessionStorage.setItem("relai_questionnaire_data", JSON.stringify(formData));
+  }, [formData]);
 
-      localStorage.setItem("relai_payment_status", "pending");
-      sessionStorage.setItem("relai_payment_status", "pending");
+  useEffect(() => {
+    const storedAnalysis =
+      localStorage.getItem("relai_free_analysis") ||
+      sessionStorage.getItem("relai_free_analysis");
 
-      saveQuestionnaireSnapshot(data.questionnaire);
-
-      if (typeof window !== "undefined" && (window as any).db) {
-        try {
-          const { addDoc, collection } = await import("firebase/firestore");
-          const docRef = await addDoc(collection((window as any).db, "relai_payments"), data);
-          firebaseDocId = docRef.id;
-        } catch (error) {
-          console.error("Firebase save failed:", error);
-        }
-      }
-    }
-
-    const onPremiumPayClick = async () => {
-      const questionnaireData = getQuestionnaireData();
-      const email = premiumEmailInput?.value.trim() || questionnaireData.email.trim();
-
-      if (!email) {
-        alert("Please confirm your email.");
-        return;
-      }
-
-      if (premiumEmailInput) premiumEmailInput.value = email;
-      if (questionnaireEmailInput) questionnaireEmailInput.value = email;
-
-      const paymentIntentData = buildPaymentIntentData();
-      pendingPaymentIntent = paymentIntentData;
-
-      saveQuestionnaireSnapshot(questionnaireData);
-      localStorage.setItem("relai_email", email);
-      sessionStorage.setItem("relai_email", email);
-
+    if (storedAnalysis) {
       try {
-        await savePaymentIntent(paymentIntentData);
-
-        if (!paypalContainer || !paypalPlaceholder) return;
-
-        paypalContainer.classList.add("active");
-        paypalPlaceholder.style.display = "block";
-        paypalPlaceholder.innerText = "Preparing secure PayPal checkout...";
-
-        if ((window as any).paypal && typeof (window as any).paypal.Buttons === "function") {
-          if (!paypalRendered) {
-            paypalRendered = true;
-
-            paypalPlaceholder.style.display = "none";
-
-            (window as any).paypal
-              .Buttons({
-                style: {
-                  layout: "vertical",
-                  shape: "pill",
-                  color: "gold",
-                  label: "paypal",
-                },
-
-                createOrder: function (data: any, actions: any) {
-                  const selectedCountry = (document.getElementById("country") as HTMLSelectElement | null)?.value;
-
-                  let amount = "15";
-
-                  if (selectedCountry === "South Africa") {
-                    amount = "14";
-                  }
-
-                  if (selectedCountry === "Brazil") {
-                    amount = "15";
-                  }
-
-                  if (selectedCountry === "India") {
-                    amount = "16";
-                  }
-
-                  if (selectedCountry === "Nigeria") {
-                    amount = "13";
-                  }
-
-                  return actions.order.create({
-                    purchase_units: [
-                      {
-                        amount: {
-                          value: amount,
-                        },
-                      },
-                    ],
-                  });
-                },
-
-                onApprove: async function (data: any, actions: any) {
-                  try {
-                    const details = await actions.order.capture();
-
-                    localStorage.setItem("premium_unlocked", "true");
-                    sessionStorage.setItem("premium_unlocked", "true");
-
-                    localStorage.setItem("relai_payment_status", "paid");
-                    sessionStorage.setItem("relai_payment_status", "paid");
-
-                    localStorage.setItem(
-                      "relai_payment_receipt",
-                      JSON.stringify({
-                        paypalOrderId: data.orderID,
-                        details,
-                        paidAt: new Date().toISOString(),
-                      })
-                    );
-
-                    sessionStorage.setItem(
-                      "relai_payment_receipt",
-                      JSON.stringify({
-                        paypalOrderId: data.orderID,
-                        details,
-                        paidAt: new Date().toISOString(),
-                      })
-                    );
-
-                    if (firebaseDocId && (window as any).db) {
-                      try {
-                        const { doc, updateDoc } = await import("firebase/firestore");
-                        await updateDoc(doc((window as any).db, "relai_payments", firebaseDocId), {
-                          paymentStatus: "paid",
-                          premiumUnlocked: true,
-                          paypalOrderId: data.orderID,
-                          paidAt: new Date().toISOString(),
-                        });
-                      } catch (error) {
-                        console.error(error);
-                      }
-                    }
-
-                    window.location.href = "result.html";
-                  } catch (err) {
-                    console.error(err);
-                    alert("Payment approval failed. Please try again.");
-                  }
-                },
-
-                onError: function (err: any) {
-                  console.error(err);
-                  alert("Payment failed. Please try again.");
-                },
-              })
-              .render("#paypal-button-container");
-          }
-        } else {
-          paypalPlaceholder.style.display = "block";
-          paypalPlaceholder.innerText =
-            "PayPal is not ready yet. Please check your client ID and reload the page.";
-        }
-      } catch (error) {
-        console.error(error);
-        alert("Failed to initialize payment.");
+        const parsed = JSON.parse(storedAnalysis);
+        setAnalysisText(formatAnalysisText(parsed));
+        setShowPremiumButton(true);
+      } catch {
+        setAnalysisText(storedAnalysis);
+        setShowPremiumButton(true);
       }
+    }
+
+    const premiumUnlocked =
+      localStorage.getItem("relai_premium_unlocked") ||
+      sessionStorage.getItem("relai_premium_unlocked");
+
+    if (premiumUnlocked === "true") {
+      setShowPremiumButton(true);
+    }
+  }, []);
+
+  const goNext = () => {
+    setCurrentStep((prev) => Math.min(prev + 1, 6));
+  };
+
+  const updateField = <K extends keyof QuestionnaireData>(key: K, value: QuestionnaireData[K]) => {
+    setFormData((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
+
+  const toggleDestination = (country: string) => {
+    setFormData((prev) => {
+      const exists = prev.destination_interest.includes(country);
+      return {
+        ...prev,
+        destination_interest: exists
+          ? prev.destination_interest.filter((item) => item !== country)
+          : [...prev.destination_interest, country],
+      };
+    });
+  };
+
+  const getQuestionnaireData = (): QuestionnaireData => {
+    return {
+      ...formData,
+      country: formData.country || "United States",
+      destination_interest: [...formData.destination_interest],
     };
+  };
 
-    premiumPayBtn?.addEventListener("click", onPremiumPayClick);
+  const saveQuestionnaireSnapshot = (data: QuestionnaireData) => {
+    localStorage.setItem("relai_questionnaire", JSON.stringify(data));
+    sessionStorage.setItem("relai_questionnaire", JSON.stringify(data));
 
-    return () => {
-      nextBtns.forEach((btn) => {
-        const handler = nextBtnHandlers.get(btn);
-        if (handler) btn.removeEventListener("click", handler);
+    localStorage.setItem("relai_questionnaire_data", JSON.stringify(data));
+    sessionStorage.setItem("relai_questionnaire_data", JSON.stringify(data));
+
+    localStorage.setItem("relai_email", data.email || "");
+    sessionStorage.setItem("relai_email", data.email || "");
+
+    localStorage.setItem("relai_origin_country", data.country || "");
+    sessionStorage.setItem("relai_origin_country", data.country || "");
+
+    localStorage.setItem("relai_profession", data.profession || "");
+    sessionStorage.setItem("relai_profession", data.profession || "");
+  };
+
+  const handleViewAnalysis = async () => {
+    setLoadingStateVisible(true);
+    setAnalysisCardVisible(false);
+
+    const questionnaireData = getQuestionnaireData();
+    saveQuestionnaireSnapshot(questionnaireData);
+
+    try {
+      const response = await fetch("http://127.0.0.1:8000/api/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          answers: questionnaireData,
+        }),
       });
 
-      observer.disconnect();
+      const data = (await response.json()) as AnalysisResponse;
 
-      if (countryInput) {
-        countryInput.removeEventListener("change", updateCurrencyUI);
+      if (!response.ok) {
+        throw new Error(data?.detail || "Failed to generate analysis");
       }
 
-      questionnaireEmailInput?.removeEventListener("input", onQuestionnaireEmailInput);
-      premiumEmailInput?.removeEventListener("input", onPremiumEmailInput);
-      viewAnalysisBtn?.removeEventListener("click", onViewAnalysisClick);
-      premiumBtn?.removeEventListener("click", openPremiumModal);
-      closeModal?.removeEventListener("click", closePremiumModal);
-      premiumModal?.removeEventListener("click", onModalOverlayClick);
-      document.removeEventListener("keydown", onEscapeKeyDown);
-      premiumPayBtn?.removeEventListener("click", onPremiumPayClick);
+      const analysis = data.analysis ?? data;
+      const formatted = formatAnalysisText(analysis);
+
+      localStorage.setItem("relai_free_analysis", JSON.stringify(analysis));
+      sessionStorage.setItem("relai_free_analysis", JSON.stringify(analysis));
+
+      setAnalysisText(formatted);
+      setAnalysisCardVisible(true);
+      setShowPremiumButton(true);
+    } catch (error) {
+      console.error(error);
+      alert("Failed to generate AI analysis.");
+    } finally {
+      setLoadingStateVisible(false);
+    }
+  };
+
+  const openPremiumModal = () => {
+    saveQuestionnaireSnapshot(getQuestionnaireData());
+    setPremiumModalOpen(true);
+    document.body.style.overflow = "hidden";
+  };
+
+  const closePremiumModal = () => {
+    setPremiumModalOpen(false);
+    document.body.style.overflow = "";
+  };
+
+  const buildPaymentIntentData = () => {
+    const questionnaireData = getQuestionnaireData();
+    const email = formData.email.trim() || questionnaireData.email.trim();
+
+    return {
+      email,
+      questionnaire: questionnaireData,
+      selectedCountry: questionnaireData.country,
+      profession: questionnaireData.profession,
+      paymentIntent: true,
+      paymentStatus: "pending",
+      premiumUnlocked: false,
+      createdAt: new Date().toISOString(),
     };
-  }, []);
+  };
+
+  const initPayPalCheckout = () => {
+    const questionnaireData = getQuestionnaireData();
+    const email = formData.email.trim() || questionnaireData.email.trim();
+
+    if (!email) {
+      alert("Please confirm your email.");
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      email,
+    }));
+
+    const paymentIntentData = buildPaymentIntentData();
+
+    localStorage.setItem("relai_payment_intent", JSON.stringify(paymentIntentData));
+    sessionStorage.setItem("relai_payment_intent", JSON.stringify(paymentIntentData));
+    localStorage.setItem("relai_payment_status", "pending");
+    sessionStorage.setItem("relai_payment_status", "pending");
+
+    setPaypalReadyText("Preparing secure PayPal checkout...");
+
+    if (window.paypal && typeof window.paypal.Buttons === "function") {
+      if (paypalRenderedRef.current) return;
+
+      paypalRenderedRef.current = true;
+      setPaypalReadyText("");
+
+      if (!paypalContainerRef.current) return;
+
+      window.paypal
+        .Buttons({
+          style: {
+            layout: "vertical",
+            shape: "pill",
+            color: "gold",
+            label: "paypal",
+          },
+
+          createOrder: function (_data: any, actions: any) {
+            const selectedCountry = formData.country || "United States";
+            let amount = "15";
+
+            if (selectedCountry === "South Africa") amount = "14";
+            if (selectedCountry === "Brazil") amount = "15";
+            if (selectedCountry === "India") amount = "16";
+            if (selectedCountry === "Nigeria") amount = "13";
+
+            return actions.order.create({
+              purchase_units: [
+                {
+                  amount: {
+                    value: amount,
+                  },
+                },
+              ],
+            });
+          },
+
+          onApprove: async function (data: any, actions: any) {
+            try {
+              const details = await actions.order.capture();
+
+              sessionStorage.setItem("relai_premium_unlocked", "true");
+              localStorage.setItem("relai_premium_unlocked", "true");
+
+              const questionnaireData = getQuestionnaireData();
+              sessionStorage.setItem(
+                "relai_questionnaire_data",
+                JSON.stringify(questionnaireData)
+              );
+              localStorage.setItem(
+                "relai_questionnaire_data",
+                JSON.stringify(questionnaireData)
+              );
+
+              localStorage.setItem("relai_payment_status", "paid");
+              sessionStorage.setItem("relai_payment_status", "paid");
+
+              localStorage.setItem(
+                "relai_payment_receipt",
+                JSON.stringify({
+                  paypalOrderId: data.orderID,
+                  details,
+                  paidAt: new Date().toISOString(),
+                })
+              );
+
+              sessionStorage.setItem(
+                "relai_payment_receipt",
+                JSON.stringify({
+                  paypalOrderId: data.orderID,
+                  details,
+                  paidAt: new Date().toISOString(),
+                })
+              );
+
+              window.location.href = "/result";
+            } catch (err) {
+              console.error(err);
+              alert("Payment approval failed. Please try again.");
+            }
+          },
+
+          onError: function (err: unknown) {
+            console.error(err);
+            alert("Payment failed. Please try again.");
+          },
+        })
+        .render("#paypal-button-container");
+    } else {
+      setPaypalReadyText(
+        "PayPal is not ready yet. Please check your client ID and reload the page."
+      );
+    }
+  };
 
   return (
     <>
-      <div className="bg-glow"></div>
-      <div className="bg-glow-2"></div>
+      <Script
+        src="https://www.paypal.com/sdk/js?client-id=AYLeuCy_I_Kll_oOMGZl0Aza8fa7mIta9-sSIq9-p_RHPlXEclyBsIKtvney6okR39OfPuyXzAypegFv&currency=USD"
+        strategy="afterInteractive"
+      />
+
+      <div className="bg-glow" />
+      <div className="bg-glow-2" />
 
       <nav>
         <div className="logo">RelAI</div>
@@ -547,8 +526,8 @@ export default function QuestionnairePage() {
           <h1>Find Your Best Visa Pathway</h1>
 
           <p>
-            Complete this quick assessment and our AI will analyze your relocation opportunities based on your profile,
-            finances, experience, and goals.
+            Complete this quick assessment and our AI will analyze your relocation
+            opportunities based on your profile, finances, experience, and goals.
           </p>
         </div>
 
@@ -556,16 +535,25 @@ export default function QuestionnairePage() {
           <div className="progress-card">
             <div className="progress-top">
               <span>Assessment Progress</span>
-              <span id="progressText">16%</span>
+              <span id="progressText">{Math.round(progressPercent)}%</span>
             </div>
 
             <div className="progress-bar">
-              <div className="progress-fill" id="progressFill"></div>
+              <div
+                className="progress-fill"
+                id="progressFill"
+                style={{ width: `${progressPercent}%` }}
+              />
             </div>
           </div>
         </div>
 
-        <section className="form-step active">
+        <section
+          className={`form-step ${currentStep >= 0 ? "active" : ""}`}
+          ref={(el) => {
+            stepRefs.current[0] = el;
+          }}
+        >
           <div className="card">
             <span className="step-label">SECTION 1</span>
 
@@ -575,28 +563,55 @@ export default function QuestionnairePage() {
 
             <div className="input-group">
               <label>Full Name</label>
-              <input type="text" id="name" placeholder="Enter your full name" />
+              <input
+                type="text"
+                id="name"
+                placeholder="Enter your full name"
+                value={formData.name}
+                onChange={(e) => updateField("name", e.target.value)}
+              />
             </div>
 
             <div className="input-group">
               <label>Email Address</label>
-              <input type="email" id="email" placeholder="Enter your email" />
+              <input
+                type="email"
+                id="email"
+                placeholder="Enter your email"
+                value={formData.email}
+                onChange={(e) => updateField("email", e.target.value)}
+              />
             </div>
 
             <div className="input-group">
               <label>Age</label>
-              <input type="number" id="age" placeholder="Enter your age" />
+              <input
+                type="number"
+                id="age"
+                placeholder="Enter your age"
+                value={formData.age}
+                onChange={(e) => updateField("age", e.target.value)}
+              />
             </div>
 
             <div className="input-group">
               <label>Citizenship</label>
-              <input type="text" id="citizenship" placeholder="e.g South African" />
+              <input
+                type="text"
+                id="citizenship"
+                placeholder="e.g South African"
+                value={formData.citizenship}
+                onChange={(e) => updateField("citizenship", e.target.value)}
+              />
             </div>
 
             <div className="input-group">
               <label>Current Country</label>
-
-              <select id="country">
+              <select
+                id="country"
+                value={formData.country}
+                onChange={(e) => updateField("country", e.target.value)}
+              >
                 <option value="">Select Country</option>
                 <option value="South Africa">South Africa</option>
                 <option value="Brazil">Brazil</option>
@@ -607,12 +622,19 @@ export default function QuestionnairePage() {
             </div>
 
             <div className="btn-row">
-              <button className="next-btn">Continue →</button>
+              <button type="button" className="next-btn" onClick={goNext}>
+                Continue →
+              </button>
             </div>
           </div>
         </section>
 
-        <section className="form-step">
+        <section
+          className={`form-step ${currentStep >= 1 ? "active" : ""}`}
+          ref={(el) => {
+            stepRefs.current[1] = el;
+          }}
+        >
           <div className="card">
             <span className="step-label">SECTION 2</span>
 
@@ -623,23 +645,34 @@ export default function QuestionnairePage() {
             <div className="input-group">
               <label>Highest Education Level</label>
 
-              <select id="education">
-                <option>Select Education</option>
-                <option>High School</option>
-                <option>Diploma</option>
-                <option>Bachelor’s</option>
-                <option>Master’s</option>
-                <option>PhD</option>
+              <select
+                id="education"
+                value={formData.education}
+                onChange={(e) => updateField("education", e.target.value)}
+              >
+                <option value="">Select Education</option>
+                <option value="High School">High School</option>
+                <option value="Diploma">Diploma</option>
+                <option value="Bachelor’s">Bachelor’s</option>
+                <option value="Master’s">Master’s</option>
+                <option value="PhD">PhD</option>
               </select>
             </div>
 
             <div className="btn-row">
-              <button className="next-btn">Continue →</button>
+              <button type="button" className="next-btn" onClick={goNext}>
+                Continue →
+              </button>
             </div>
           </div>
         </section>
 
-        <section className="form-step">
+        <section
+          className={`form-step ${currentStep >= 2 ? "active" : ""}`}
+          ref={(el) => {
+            stepRefs.current[2] = el;
+          }}
+        >
           <div className="card">
             <span className="step-label">SECTION 3</span>
 
@@ -649,21 +682,40 @@ export default function QuestionnairePage() {
 
             <div className="input-group">
               <label>Current Job Title</label>
-              <input type="text" id="profession" placeholder="e.g Software Engineer" />
+              <input
+                type="text"
+                id="profession"
+                placeholder="e.g Software Engineer"
+                value={formData.profession}
+                onChange={(e) => updateField("profession", e.target.value)}
+              />
             </div>
 
             <div className="input-group">
               <label>Years of Experience</label>
-              <input type="number" id="experience" placeholder="e.g 3" />
+              <input
+                type="number"
+                id="experience"
+                placeholder="e.g 3"
+                value={formData.experience}
+                onChange={(e) => updateField("experience", e.target.value)}
+              />
             </div>
 
             <div className="btn-row">
-              <button className="next-btn">Continue →</button>
+              <button type="button" className="next-btn" onClick={goNext}>
+                Continue →
+              </button>
             </div>
           </div>
         </section>
 
-        <section className="form-step">
+        <section
+          className={`form-step ${currentStep >= 3 ? "active" : ""}`}
+          ref={(el) => {
+            stepRefs.current[3] = el;
+          }}
+        >
           <div className="card">
             <span className="step-label">SECTION 4</span>
 
@@ -672,20 +724,49 @@ export default function QuestionnairePage() {
             <p>This helps us estimate affordability and relocation readiness.</p>
 
             <div className="input-group">
-              <label id="fundsLabel">Available Funds</label>
+              <label id="fundsLabel">
+                Available Funds
+                <span
+                  style={{
+                    display: "block",
+                    marginTop: 8,
+                    color: "#8b6f47",
+                    fontSize: "0.95rem",
+                    fontWeight: 600,
+                  }}
+                >
+                  Estimated relocation benchmark: {selectedCountryConfig.free}
+                </span>
+              </label>
 
-              <select id="funds">
-                <option>Select Range</option>
+              <select
+                id="funds"
+                value={formData.funds}
+                onChange={(e) => updateField("funds", e.target.value)}
+              >
+                <option value="">Select Range</option>
+                {selectedCountryConfig.funds.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
               </select>
             </div>
 
             <div className="btn-row">
-              <button className="next-btn">Continue →</button>
+              <button type="button" className="next-btn" onClick={goNext}>
+                Continue →
+              </button>
             </div>
           </div>
         </section>
 
-        <section className="form-step">
+        <section
+          className={`form-step ${currentStep >= 4 ? "active" : ""}`}
+          ref={(el) => {
+            stepRefs.current[4] = el;
+          }}
+        >
           <div className="card">
             <span className="step-label">SECTION 5</span>
 
@@ -695,28 +776,56 @@ export default function QuestionnairePage() {
 
             <div className="option-grid">
               <div className="radio-card">
-                <input type="radio" id="study" name="goal" value="Study Abroad" />
+                <input
+                  type="radio"
+                  id="study"
+                  name="goal"
+                  value="Study Abroad"
+                  checked={formData.goal === "Study Abroad"}
+                  onChange={(e) => updateField("goal", e.target.value)}
+                />
                 <label htmlFor="study">🎓 Study Abroad</label>
               </div>
 
               <div className="radio-card">
-                <input type="radio" id="work" name="goal" value="Work Abroad" />
+                <input
+                  type="radio"
+                  id="work"
+                  name="goal"
+                  value="Work Abroad"
+                  checked={formData.goal === "Work Abroad"}
+                  onChange={(e) => updateField("goal", e.target.value)}
+                />
                 <label htmlFor="work">💼 Work Abroad</label>
               </div>
 
               <div className="radio-card">
-                <input type="radio" id="relocate" name="goal" value="Permanent Relocation" />
+                <input
+                  type="radio"
+                  id="relocate"
+                  name="goal"
+                  value="Permanent Relocation"
+                  checked={formData.goal === "Permanent Relocation"}
+                  onChange={(e) => updateField("goal", e.target.value)}
+                />
                 <label htmlFor="relocate">🌍 Permanent Relocation</label>
               </div>
             </div>
 
             <div className="btn-row">
-              <button className="next-btn">Continue →</button>
+              <button type="button" className="next-btn" onClick={goNext}>
+                Continue →
+              </button>
             </div>
           </div>
         </section>
 
-        <section className="form-step">
+        <section
+          className={`form-step ${currentStep >= 5 ? "active" : ""}`}
+          ref={(el) => {
+            stepRefs.current[5] = el;
+          }}
+        >
           <div className="card">
             <span className="step-label">SECTION 6</span>
 
@@ -726,70 +835,119 @@ export default function QuestionnairePage() {
 
             <div className="option-grid">
               <div className="check-card">
-                <input type="checkbox" id="canada" />
+                <input
+                  type="checkbox"
+                  id="canada"
+                  checked={formData.destination_interest.includes("Canada")}
+                  onChange={() => toggleDestination("Canada")}
+                />
                 <label htmlFor="canada">🇨🇦 Canada</label>
               </div>
 
               <div className="check-card">
-                <input type="checkbox" id="uk" />
+                <input
+                  type="checkbox"
+                  id="uk"
+                  checked={formData.destination_interest.includes("United Kingdom")}
+                  onChange={() => toggleDestination("United Kingdom")}
+                />
                 <label htmlFor="uk">🇬🇧 United Kingdom</label>
               </div>
 
               <div className="check-card">
-                <input type="checkbox" id="usa" />
+                <input
+                  type="checkbox"
+                  id="usa"
+                  checked={formData.destination_interest.includes("United States")}
+                  onChange={() => toggleDestination("United States")}
+                />
                 <label htmlFor="usa">🇺🇸 United States</label>
               </div>
             </div>
 
             <div className="btn-row">
-              <button className="next-btn" id="finishBtn">
+              <button type="button" className="next-btn" id="finishBtn" onClick={goNext}>
                 Finish Assessment →
               </button>
             </div>
           </div>
         </section>
 
-        <section className="form-step">
+        <section
+          className={`form-step ${currentStep >= 6 ? "active" : ""}`}
+          ref={(el) => {
+            stepRefs.current[6] = el;
+          }}
+        >
           <div className="card success-card">
             <span className="step-label">COMPLETE</span>
 
             <h2>Assessment Submitted Successfully</h2>
 
             <p>
-              Your AI relocation analysis is now being prepared. We’ll generate the best migration pathways, country
-              matches, and recommendations for your profile.
+              Your AI relocation analysis is now being prepared. We&apos;ll generate
+              the best migration pathways, country matches, and recommendations for
+              your profile.
             </p>
 
-            <button id="viewAnalysisBtn" className="next-btn">
+            <button type="button" id="viewAnalysisBtn" className="next-btn" onClick={handleViewAnalysis}>
               View AI Analysis
             </button>
 
-            <button id="premiumBtn" className="premium-btn">
-              ✨ Get Full AI Report
-            </button>
-
-            <div id="loadingState" className="loading-state">
-              <div className="spinner"></div>
+            <div
+              id="loadingState"
+              className="loading-state"
+              style={{ display: loadingStateVisible ? "block" : "none" }}
+            >
+              <div className="spinner" />
 
               <h3>Generating Your AI Relocation Roadmap...</h3>
 
-              <p>RelAI is analyzing your profile, profession, finances, and destination opportunities.</p>
+              <p>
+                RelAI is analyzing your profile, profession, finances, and
+                destination opportunities.
+              </p>
             </div>
+
+            <div
+              id="analysisCard"
+              className={`analysis-card ${analysisCardVisible ? "active" : ""}`}
+              aria-live="polite"
+              style={{ display: analysisCardVisible ? "block" : "none" }}
+            >
+              <h3>Your Free AI Analysis</h3>
+              <p>This appears on the same page after the analysis is generated.</p>
+              <div id="analysisContent" className="analysis-content">
+                <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{analysisText}</pre>
+              </div>
+            </div>
+
+            {showPremiumButton ? (
+              <button type="button" id="premiumBtn" className="premium-btn" onClick={openPremiumModal}>
+                ✨ Get Full AI Report
+              </button>
+            ) : null}
           </div>
         </section>
       </div>
 
-      <div className="modal-overlay" id="premiumModal">
+      <div
+        className={`modal-overlay ${premiumModalOpen ? "active" : ""}`}
+        id="premiumModal"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) closePremiumModal();
+        }}
+      >
         <div className="premium-modal">
-          <button className="close-modal" id="closeModal">
+          <button className="close-modal" id="closeModal" onClick={closePremiumModal} type="button">
             ✕
           </button>
 
           <h2 className="modal-title">Unlock Your Full AI Relocation Roadmap 🌍</h2>
 
           <p className="modal-subtitle">
-            Get a deeper AI-powered breakdown tailored to your career, finances, immigration profile, and relocation
-            goals.
+            Get a deeper AI-powered breakdown tailored to your career, finances,
+            immigration profile, and relocation goals.
           </p>
 
           <div className="checklist">
@@ -836,34 +994,45 @@ export default function QuestionnairePage() {
 
           <div className="price-box">
             <div className="price-label">Full Premium AI Report</div>
-
             <div className="dynamic-price" id="premiumPrice">
-              $15 USD
+              {selectedCountryConfig.premium}
             </div>
           </div>
 
           <div className="email-confirm">
-            <input type="email" id="premiumEmail" placeholder="Confirm your email address" />
+            <input
+              type="email"
+              id="premiumEmail"
+              placeholder="Confirm your email address"
+              value={formData.email}
+              onChange={(e) => updateField("email", e.target.value)}
+            />
 
             <small>Your email is prefilled from the questionnaire and can be edited here.</small>
           </div>
 
-          <button className="next-btn" id="premiumPayBtn" style={{ width: "100%" }}>
+          <button
+            className="next-btn"
+            id="premiumPayBtn"
+            type="button"
+            style={{ width: "100%" }}
+            onClick={initPayPalCheckout}
+          >
             Continue To Secure Payment
           </button>
 
-          <div className="paypal-wrapper" id="paypal-button-container">
+          <div
+            className={`paypal-wrapper ${premiumModalOpen ? "active" : ""}`}
+            id="paypal-button-container"
+            ref={paypalContainerRef}
+            style={{ display: premiumModalOpen ? "block" : "none" }}
+          >
             <div className="paypal-placeholder" id="paypalPlaceholder">
-              PayPal checkout will appear here after you continue to secure payment.
+              {paypalReadyText || "PayPal checkout will appear here after you continue to secure payment."}
             </div>
           </div>
         </div>
       </div>
-
-      <Script
-        src="https://www.paypal.com/sdk/js?client-id=AYLeuCy_I_Kll_oOMGZl0Aza8fa7mIta9-sSIq9-p_RHPlXEclyBsIKtvney6okR39OfPuyXzAypegFv&currency=USD"
-        strategy="afterInteractive"
-      />
     </>
   );
 }

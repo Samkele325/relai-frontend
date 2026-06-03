@@ -169,11 +169,7 @@ nav{
   width:16%;
   height:100%;
   border-radius:999px;
-  background:linear-gradient(
-    135deg,
-    var(--earth-main),
-    var(--earth-dark)
-  );
+  background:linear-gradient(135deg, var(--earth-main), var(--earth-dark));
   transition:0.4s ease;
 }
 
@@ -309,11 +305,7 @@ select:focus{
   align-items:center;
   justify-content:center;
   padding:18px 34px;
-  background:linear-gradient(
-    135deg,
-    var(--earth-main),
-    var(--earth-dark)
-  );
+  background:linear-gradient(135deg, var(--earth-main), var(--earth-dark));
   color:white;
   border-radius:18px;
   font-weight:600;
@@ -328,7 +320,7 @@ select:focus{
   box-shadow:0 14px 30px rgba(75,59,47,0.22);
 }
 
-/* INSERTED: PREMIUM CTA UPDATED STYLE */
+/* PREMIUM CTA */
 
 .premium-btn{
   margin-top:18px;
@@ -348,6 +340,7 @@ select:focus{
     inset 0 1px 0 rgba(255,255,255,0.15);
   position:relative;
   overflow:hidden;
+  display:none;
 }
 
 .premium-btn::before{
@@ -372,6 +365,49 @@ select:focus{
 
 .premium-btn:active{
   transform:translateY(-1px) scale(0.995);
+}
+
+/* ANALYSIS BOX */
+
+.analysis-card{
+  margin-top:26px;
+  padding:28px;
+  border-radius:28px;
+  background:linear-gradient(180deg, rgba(255,255,255,0.96), rgba(244,241,235,0.96));
+  border:1px solid rgba(139,111,71,0.12);
+  box-shadow:var(--shadow-strong);
+  opacity:0;
+  transform:translateY(18px);
+  display:none;
+  transition:0.5s ease;
+  text-align:left;
+}
+
+.analysis-card.active{
+  display:block;
+  opacity:1;
+  transform:translateY(0);
+}
+
+.analysis-card h3{
+  color:var(--earth-dark);
+  margin-bottom:12px;
+  font-size:1.4rem;
+}
+
+.analysis-card p{
+  margin-bottom:18px;
+  color:var(--muted);
+}
+
+.analysis-content{
+  white-space:pre-wrap;
+  line-height:1.8;
+  color:var(--text);
+  background:rgba(255,255,255,0.6);
+  border:1px solid rgba(139,111,71,0.08);
+  padding:18px;
+  border-radius:22px;
 }
 
 /* PREMIUM MODAL */
@@ -473,11 +509,7 @@ select:focus{
   display:flex;
   align-items:center;
   justify-content:center;
-  background:linear-gradient(
-    135deg,
-    var(--earth-main),
-    var(--earth-dark)
-  );
+  background:linear-gradient(135deg, var(--earth-main), var(--earth-dark));
   color:white;
   font-size:0.9rem;
   box-shadow:0 8px 20px rgba(75,59,47,0.18);
@@ -618,7 +650,6 @@ select:focus{
 /* MOBILE */
 
 @media(max-width:768px){
-
   .header h1{
     font-size:2.3rem;
   }
