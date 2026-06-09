@@ -32,6 +32,8 @@ declare global {
   }
 }
 
+const API_URL = "https://relai-production-99f8.up.railway.app/api/analyze";
+
 const PRICING_MAP: Record<
   string,
   {
@@ -323,9 +325,7 @@ export default function QuestionnairePage() {
     saveQuestionnaireSnapshot(questionnaireData);
 
     try {
-      const response = await fetch("
-       https://relai-production-99f8.up.railway.app/api/analyze")
-        {
+      const response = await fetch(API_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -335,7 +335,18 @@ export default function QuestionnairePage() {
         }),
       });
 
-      const data = (await response.json()) as AnalysisResponse;
+      const text = await response.text();
+      console.log("RAW RESPONSE:", text);
+
+      let data: AnalysisResponse;
+      try {
+        data = JSON.parse(text) as AnalysisResponse;
+      } catch {
+        throw new Error(`Backend returned invalid JSON: ${text}`);
+      }
+
+      console.log("Response status:", response.status);
+      console.log("Response data:", data);
 
       if (!response.ok) {
         throw new Error(data?.detail || "Failed to generate analysis");
