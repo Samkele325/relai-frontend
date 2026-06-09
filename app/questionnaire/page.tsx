@@ -323,7 +323,9 @@ export default function QuestionnairePage() {
     saveQuestionnaireSnapshot(questionnaireData);
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/analyze", {
+      const response = await fetch("
+       https://relai-production-99f8.up.railway.app/api/analyze")
+        {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
